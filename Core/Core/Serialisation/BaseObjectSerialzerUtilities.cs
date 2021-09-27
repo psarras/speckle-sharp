@@ -1,16 +1,18 @@
-﻿using Speckle.Newtonsoft.Json;
-using Speckle.Newtonsoft.Json.Serialization;
-using Speckle.Newtonsoft.Json.Linq;
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.Serialization;
 using System.Threading;
 using Microsoft.CSharp.RuntimeBinder;
 using Speckle.Core.Kits;
 using Speckle.Core.Logging;
 using Speckle.Core.Models;
+using Speckle.Newtonsoft.Json;
+using Speckle.Newtonsoft.Json.Linq;
+using Speckle.Newtonsoft.Json.Serialization;
 
 namespace Speckle.Core.Serialisation
 {
@@ -19,17 +21,22 @@ namespace Speckle.Core.Serialisation
     #region Getting Types
 
     private static Dictionary<string, Type> cachedTypes = new Dictionary<string, Type>();
+    private static Dictionary<string, Dictionary<string, PropertyInfo>> typeProperties = new Dictionary<string, Dictionary<string, PropertyInfo>>();
+    private static Dictionary<string, List<MethodInfo>> onDeserializedCallbacks = new Dictionary<string, List<MethodInfo>>();
 
     internal static Type GetType(string objFullType)
     {
-      if (cachedTypes.ContainsKey(objFullType))
+      lock (cachedTypes)
       {
-        return cachedTypes[objFullType];
-      }
-      var type = GetAtomicType(objFullType);
-      cachedTypes[objFullType] = type;
-      return type;
+        if (cachedTypes.ContainsKey(objFullType))
+        {
+          return cachedTypes[objFullType];
+        }
 
+        var type = GetAtomicType(objFullType);
+        cachedTypes[objFullType] = type;
+        return type;
+      }
     }
 
     internal static Type GetAtomicType(string objFullType)
@@ -47,6 +54,46 @@ namespace Speckle.Core.Serialisation
       }
 
       return typeof(Base);
+    }
+
+    internal static Dictionary<string, PropertyInfo> GetTypePropeties(string objFullType)
+    {
+      lock (typeProperties)
+      {
+        if (!typeProperties.ContainsKey(objFullType))
+        {
+          Dictionary<string, PropertyInfo> ret = new Dictionary<string, PropertyInfo>();
+          Type type = GetType(objFullType);
+          PropertyInfo[] properties = type.GetProperties();
+          foreach (PropertyInfo prop in properties)
+            ret[prop.Name.ToLower()] = prop;
+          typeProperties[objFullType] = ret;
+        }
+        return typeProperties[objFullType];
+      }
+    }
+
+    internal static List<MethodInfo> GetOnDeserializedCallbacks(string objFullType)
+    {
+      // return new List<MethodInfo>();
+      lock (onDeserializedCallbacks)
+      {
+        // System.Runtime.Serialization.Ca
+        if (!onDeserializedCallbacks.ContainsKey(objFullType))
+        {
+          List<MethodInfo> ret = new List<MethodInfo>();
+          Type type = GetType(objFullType);
+          MethodInfo[] methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+          foreach (MethodInfo method in methods)
+          {
+            List<OnDeserializedAttribute> onDeserializedAttributes = method.GetCustomAttributes<OnDeserializedAttribute>(true).ToList();
+            if (onDeserializedAttributes.Count > 0)
+              ret.Add(method);
+          }
+          onDeserializedCallbacks[objFullType] = ret;
+        }
+        return onDeserializedCallbacks[objFullType];
+      }
     }
 
     internal static Type GetSytemOrSpeckleType(string typeName)
@@ -127,16 +174,16 @@ namespace Speckle.Core.Serialisation
                 {
                   if (jsonProperty.PropertyType.GenericTypeArguments[0].IsAssignableFrom(dataItem.GetType()))
                   {
-                    addMethod.Invoke(arr, new object[] { dataItem });
+                    addMethod.Invoke(arr, new object[ ] { dataItem });
                   }
                   else
                   {
-                    addMethod.Invoke(arr, new object[] { Convert.ChangeType(dataItem, jsonProperty.PropertyType.GenericTypeArguments[0]) });
+                    addMethod.Invoke(arr, new object[ ] { Convert.ChangeType(dataItem, jsonProperty.PropertyType.GenericTypeArguments[0]) });
                   }
                 }
                 else
                 {
-                  addMethod.Invoke(arr, new object[] { dataItem });
+                  addMethod.Invoke(arr, new object[ ] { dataItem });
                 }
               }
             }
@@ -144,16 +191,16 @@ namespace Speckle.Core.Serialisation
             {
               if (jsonProperty.PropertyType.GenericTypeArguments[0].IsAssignableFrom(item.GetType()))
               {
-                addMethod.Invoke(arr, new object[] { item });
+                addMethod.Invoke(arr, new object[ ] { item });
               }
               else
               {
-                addMethod.Invoke(arr, new object[] { Convert.ChangeType(item, jsonProperty.PropertyType.GenericTypeArguments[0]) });
+                addMethod.Invoke(arr, new object[ ] { Convert.ChangeType(item, jsonProperty.PropertyType.GenericTypeArguments[0]) });
               }
             }
             else
             {
-              addMethod.Invoke(arr, new object[] { item });
+              addMethod.Invoke(arr, new object[ ] { item });
             }
           }
           return arr;
@@ -270,7 +317,7 @@ namespace Speckle.Core.Serialisation
           if (jsonProperty != null)
           {
             key = Convert.ChangeType(prop.Key, jsonProperty.PropertyType.GetGenericArguments()[0]);
-          } ((IDictionary)dict)[key] = HandleValue(prop.Value, serializer, CancellationToken);
+          }((IDictionary)dict)[key] = HandleValue(prop.Value, serializer, CancellationToken);
         }
         return dict;
       }
@@ -295,13 +342,13 @@ namespace Speckle.Core.Serialisation
       var myAssembly = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(ass => ass.GetName().Name == pieces[1]);
       if (myAssembly == null)
       {
-        Log.CaptureAndThrow(new SpeckleException("Could not load abstract object's assembly."), level: Sentry.Protocol.SentryLevel.Warning);
+        throw new SpeckleException("Could not load abstract object's assembly.", level : Sentry.SentryLevel.Error);
       }
 
       var myType = myAssembly.GetType(pieces[0]);
       if (myType == null)
       {
-        Log.CaptureAndThrow(new SpeckleException("Could not load abstract object's assembly."), level: Sentry.Protocol.SentryLevel.Warning);
+        throw new SpeckleException("Could not load abstract object's assembly.", level : Sentry.SentryLevel.Error);
       }
 
       cachedAbstractTypes[assemblyQualifiedName] = myType;
@@ -321,27 +368,31 @@ namespace Speckle.Core.Serialisation
     // https://github.com/mgravell/fast-member/blob/master/FastMember/CallSiteCache.cs
     // by Marc Gravell, https://github.com/mgravell
 
-    private static readonly Dictionary<string, CallSite<Func<CallSite, object, object, object>>> setters
-      = new Dictionary<string, CallSite<Func<CallSite, object, object, object>>>();
+    private static readonly Dictionary<string, CallSite<Func<CallSite, object, object, object>>> setters = new Dictionary<string, CallSite<Func<CallSite, object, object, object>>>();
 
     public static void SetValue(string propertyName, object target, object value)
     {
-      CallSite<Func<CallSite, object, object, object>> site;
-
       lock (setters)
       {
-        if (!setters.TryGetValue(propertyName, out site))
-        {
-          var binder = Microsoft.CSharp.RuntimeBinder.Binder.SetMember(CSharpBinderFlags.None,
-               propertyName, typeof(CallSiteCache),
-               new List<CSharpArgumentInfo>{
-                   CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null),
-                   CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null)});
-          setters[propertyName] = site = CallSite<Func<CallSite, object, object, object>>.Create(binder);
-        }
-      }
+        CallSite<Func<CallSite, object, object, object>> site;
 
-      site.Target(site, target, value);
+        lock (setters)
+        {
+          if (!setters.TryGetValue(propertyName, out site))
+          {
+            var binder = Microsoft.CSharp.RuntimeBinder.Binder.SetMember(CSharpBinderFlags.None,
+              propertyName, typeof(CallSiteCache),
+              new List<CSharpArgumentInfo>
+              {
+              CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null),
+              CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null)
+              });
+            setters[propertyName] = site = CallSite<Func<CallSite, object, object, object>>.Create(binder);
+          }
+        }
+
+        site.Target(site, target, value);
+      }
     }
   }
 }

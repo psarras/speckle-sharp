@@ -64,32 +64,15 @@ namespace Tests
     }
 
     [Test]
-    public void SerialisationAbstractObjects()
-    {
-      var nk = new NonKitClass() { TestProp = "Hello", Numbers = new List<int>() { 1, 2, 3, 4, 5 } };
-      var abs = new Abstract(nk);
-
-      var transport = new MemoryTransport();
-
-      var abs_serialized = Operations.Serialize(abs);
-      var abs_deserialized = Operations.Deserialize(abs_serialized);
-      var abs_se_deserializes = Operations.Serialize(abs_deserialized);
-
-      Assert.AreEqual(abs.GetId(), abs_deserialized.GetId());
-      Assert.AreEqual(abs.@base.GetType(), ((Abstract)abs_deserialized).@base.GetType());
-    }
-
-    [Test]
     public void IgnoreCircularReferences()
     {
       var pt = new Point(1, 2, 3);
-      ((dynamic)pt).circle = pt;
+      pt["circle"] = pt;
 
       var test = Operations.Serialize(pt);
 
       var result = Operations.Deserialize(test);
-      var circle = ((dynamic)result).circle;
-
+      var circle = result["circle"];
       Assert.Null(circle);
     }
 
@@ -224,6 +207,32 @@ namespace Tests
       var deserialised = Operations.Deserialize(serialised);
 
       Assert.AreEqual(deserialised.GetId(), mesh.GetId());
+    }
+
+    [Test]
+    public void EmptyListSerialisationTests()
+    {
+      // NOTE: expected behaviour is that empty lists should serialize as empty lists. Don't ask why, it's complicated. 
+      // Regarding chunkable empty lists, to prevent empty chunks, the expected behaviour is to have an empty lists, with no chunks inside.
+      var test = new Base();
+
+      test["@(5)emptyChunks"] = new List<object>();
+      test["emptyList"] = new List<object>();
+      test["@emptyDetachableList"] = new List<object>();
+
+      // Note: nested empty lists should be preserved. 
+      test["nestedList"] = new List<object>() { new List<object>() { new List<object>() } };
+      test["@nestedDetachableList"] = new List<object>() { new List<object>() { new List<object>() } };
+      
+      var serialised = Operations.Serialize(test);
+      var isCorrect =
+        serialised.Contains("\"@(5)emptyChunks\":[]") &&
+        serialised.Contains("\"emptyList\":[]") &&
+        serialised.Contains("\"@emptyDetachableList\":[]") &&
+        serialised.Contains("\"nestedList\":[[[]]]") &&
+        serialised.Contains("\"@nestedDetachableList\":[[[]]]");
+
+      Assert.AreEqual(isCorrect, true);
     }
 
   }

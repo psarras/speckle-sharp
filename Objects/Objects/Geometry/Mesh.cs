@@ -10,19 +10,19 @@ namespace Objects.Geometry
   public class Mesh : Base, IHasBoundingBox, IHasVolume, IHasArea
   {
     [DetachProperty]
-    [Chunkable(20000)]
+    [Chunkable(31250)]
     public List<double> vertices { get; set; } = new List<double>();
 
     [DetachProperty]
-    [Chunkable(20000)]
+    [Chunkable(62500)]
     public List<int> faces { get; set; } = new List<int>();
 
     [DetachProperty]
-    [Chunkable(20000)]
+    [Chunkable(62500)]
     public List<int> colors { get; set; } = new List<int>();
 
     [DetachProperty]
-    [Chunkable(20000)]
+    [Chunkable(31250)]
     public List<double> textureCoordinates { get; set; } = new List<double>();
 
     public Box bbox { get; set; }
@@ -30,6 +30,8 @@ namespace Objects.Geometry
     public double area { get; set; }
 
     public double volume { get; set; }
+
+    public string units { get; set; }
 
     public Mesh()
     {

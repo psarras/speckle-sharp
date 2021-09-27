@@ -74,23 +74,24 @@ namespace Objects
         if (File.Exists(path))
         {
           var assembly = Assembly.LoadFrom(path);
+
           var converterClass = assembly.GetTypes().FirstOrDefault(type =>
-          {
-            return type.GetInterfaces().FirstOrDefault(iface => iface.Name == typeof(ISpeckleConverter).Name) != null;
-          });
+            (type.GetInterfaces().FirstOrDefault(i => i.Name == typeof(ISpeckleConverter).Name) != null) &&
+             (Activator.CreateInstance(type) as ISpeckleConverter).GetServicedApplications().Contains(app)
+          );
 
           _LoadedConverters[app] = converterClass;
           return Activator.CreateInstance(converterClass) as ISpeckleConverter;
         }
         else
         {
-          throw new SpeckleException($"Converter for {app} was not found in kit {basePath}");
+          throw new SpeckleException($"Converter for {app} was not found in kit {basePath}", level: Sentry.SentryLevel.Warning);
         }
 
       }
       catch (Exception e)
       {
-        Log.CaptureException(e);
+        Log.CaptureException(e, Sentry.SentryLevel.Error);
         return null;
       }
     }

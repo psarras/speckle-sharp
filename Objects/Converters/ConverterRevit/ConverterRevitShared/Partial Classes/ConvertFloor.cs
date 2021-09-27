@@ -1,13 +1,12 @@
-﻿
-using Autodesk.Revit.DB;
-using Objects.BuiltElements.Revit;
-using Objects.Geometry;
-using Objects.BuiltElements;
-using Objects.BuiltElements.Revit;
-using Speckle.Core.Models;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using Autodesk.Revit.DB;
+using Objects.BuiltElements;
+using Objects.BuiltElements.Revit;
+using Objects.BuiltElements.Revit;
+using Objects.Geometry;
+using Speckle.Core.Models;
 using DB = Autodesk.Revit.DB;
 using Opening = Objects.BuiltElements.Opening;
 
@@ -19,18 +18,21 @@ namespace Objects.Converter.Revit
     {
       if (speckleFloor.outline == null)
       {
-        throw new Exception("Only outline based Floor are currently supported.");
+        throw new Speckle.Core.Logging.SpeckleException("Floor is missing an outline.");
       }
 
       bool structural = false;
       var outline = CurveToNative(speckleFloor.outline);
 
       DB.Level level;
-
+      double slope = 0;
+      DB.Line slopeDirection = null;
       if (speckleFloor is RevitFloor speckleRevitFloor)
       {
         level = LevelToNative(speckleRevitFloor.level);
         structural = speckleRevitFloor.structural;
+        slope = speckleRevitFloor.slope;
+        slopeDirection = (speckleRevitFloor.slopeDirection != null) ? LineToNative(speckleRevitFloor.slopeDirection) : null;
       }
       else
       {
@@ -48,14 +50,20 @@ namespace Objects.Converter.Revit
         Doc.Delete(docObj.Id);
       }
 
-      DB.Floor revitFloor;
+      DB.Floor revitFloor = null;
       if (floorType == null)
       {
-        revitFloor = Doc.Create.NewFloor(outline, structural);
+        if (slope != 0 && slopeDirection != null)
+          revitFloor = Doc.Create.NewSlab(outline, level, slopeDirection, slope, structural);
+        if (revitFloor == null)
+          revitFloor = Doc.Create.NewFloor(outline, structural);
       }
       else
       {
-        revitFloor = Doc.Create.NewFloor(outline, floorType, level, structural);
+        if (slope != 0 && slopeDirection != null)
+          revitFloor = Doc.Create.NewSlab(outline, level, slopeDirection, slope, structural);
+        if (revitFloor == null)
+          revitFloor = Doc.Create.NewFloor(outline, floorType, level, structural);
       }
 
       Doc.Regenerate();
@@ -66,7 +74,7 @@ namespace Objects.Converter.Revit
       }
       catch (Exception ex)
       {
-        ConversionErrors.Add(new Error($"Could not create openings in floor {speckleFloor.applicationId}", ex.Message));
+        ConversionErrors.Add(new Exception($"Could not create openings in floor {speckleFloor.applicationId}", ex));
       }
 
       SetInstanceParameters(revitFloor, speckleFloor);
@@ -78,10 +86,6 @@ namespace Objects.Converter.Revit
 
       return placeholders;
     }
-
-
-
-
 
     private RevitFloor FloorToSpeckle(DB.Floor revitFloor)
     {
@@ -100,17 +104,15 @@ namespace Objects.Converter.Revit
 
       GetAllRevitParamsAndIds(speckleFloor, revitFloor, new List<string> { "LEVEL_PARAM", "FLOOR_PARAM_IS_STRUCTURAL" });
 
-      var mesh = new Geometry.Mesh();
-      (mesh.faces, mesh.vertices) = GetFaceVertexArrayFromElement(revitFloor, new Options() { DetailLevel = ViewDetailLevel.Fine, ComputeReferences = false });
-
-      speckleFloor["@displayMesh"] = mesh;
+      speckleFloor.displayMesh = GetElementDisplayMesh(revitFloor, new Options() { DetailLevel = ViewDetailLevel.Fine, ComputeReferences = false });
 
       GetHostedElements(speckleFloor, revitFloor);
 
       return speckleFloor;
     }
 
-    //Nesting the various profiles into a polycurve segments
+    // Nesting the various profiles into a polycurve segments. 
+    // TODO: **These should be HORIZONTAL on the floor level!** otherwise sloped floors will not be converted back to native properly
     private List<ICurve> GetProfiles(DB.CeilingAndFloor floor)
     {
       var profiles = new List<ICurve>();
@@ -128,7 +130,6 @@ namespace Objects.Converter.Revit
           {
             continue;
           }
-
           poly.segments.Add(CurveToSpeckle(c));
         }
         profiles.Add(poly);

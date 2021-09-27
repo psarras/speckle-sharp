@@ -1,27 +1,27 @@
 ﻿using Objects.Geometry;
+using Objects.Utils;
 using Speckle.Core.Kits;
 using Speckle.Core.Models;
 using System.Collections.Generic;
 
 namespace Objects.BuiltElements.Revit
 {
-  public class DirectShape : Base
+  public class DirectShape : Base , IDisplayMesh
   {
     public string name { get; set; }
-
     public RevitCategory category { get; set; }
-
-    public List<Base> baseGeometries { get; set; }
-
-    public List<Parameter> parameters { get; set; }
-
+    public Base parameters { get; set; }
     public string elementId { get; set; }
 
+    [DetachProperty]
+    public List<Base> baseGeometries { get; set; }
 
-    public DirectShape()
-    {
+    [DetachProperty]
+    public Mesh displayMesh { get; set; }
 
-    }
+    public string units { get; set; }
+
+    public DirectShape() { }
 
     /// <summary>
     ///  Constructs a new <see cref="DirectShape"/> instance given a list of <see cref="Base"/> objects.
@@ -30,13 +30,13 @@ namespace Objects.BuiltElements.Revit
     /// <param name="category">The <see cref="RevitCategory"/> of this instance.</param>
     /// <param name="baseGeometries">A list of base classes to represent the direct shape (only mesh and brep are allowed, anything else will be ignored.)</param>
     /// <param name="parameters">Optional Parameters for this instance.</param>
-    [SchemaInfo("DirectShape by base geometries", "Creates a Revit DirectShape using a list of base geometry objects.")]
+    [SchemaInfo("DirectShape by base geometries", "Creates a Revit DirectShape using a list of base geometry objects.", "Revit", "Families")]
     public DirectShape(string name, RevitCategory category, List<Base> baseGeometries, List<Parameter> parameters = null)
     {
       this.name = name;
       this.category = category;
       this.baseGeometries = baseGeometries.FindAll(IsValidObject);
-      this.parameters = parameters;
+      this.parameters = parameters.ToBase();
     }
 
     public bool IsValidObject(Base @base) =>
@@ -45,5 +45,4 @@ namespace Objects.BuiltElements.Revit
       || @base is Mesh
       || @base is Brep;
   }
-
 }

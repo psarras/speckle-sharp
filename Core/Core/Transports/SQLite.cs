@@ -11,7 +11,7 @@ using Speckle.Core.Logging;
 
 namespace Speckle.Core.Transports
 {
-  public class SQLiteTransport : IDisposable, ITransport
+  public class SQLiteTransport : IDisposable, ICloneable, ITransport
   {
     public string TransportName { get; set; } = "SQLite";
 
@@ -19,9 +19,14 @@ namespace Speckle.Core.Transports
 
     public string RootPath { get; set; }
 
+    private string _BasePath { get; set; }
+    private string _ApplicationName { get; set; }
+    private string _Scope { get; set; }
+
     public string ConnectionString { get; set; }
 
     private SQLiteConnection Connection { get; set; }
+    private object ConnectionLock { get; set; }
 
     private ConcurrentQueue<(string, string, int)> Queue = new ConcurrentQueue<(string, string, int)>();
 
@@ -45,17 +50,22 @@ namespace Speckle.Core.Transports
 
       if (basePath == null)
         basePath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+      _BasePath = basePath;
 
       if (applicationName == null)
         applicationName = "Speckle";
+      _ApplicationName = applicationName;
 
       if (scope == null)
         scope = "Data";
+      _Scope = scope;
 
       Directory.CreateDirectory(Path.Combine(basePath, applicationName)); //ensure dir is there
 
       RootPath = Path.Combine(basePath, applicationName, $"{scope}.db");
-      ConnectionString = $@"URI=file:{RootPath};";
+      //fix for network drives: https://stackoverflow.com/a/18506097/826060
+      var prefix = RootPath.StartsWith(@"\\") ? @"\\" : "";
+      ConnectionString = string.Format("Data Source={0};", prefix + RootPath);
 
       try
       {
@@ -111,6 +121,10 @@ namespace Speckle.Core.Transports
         cmd = new SQLiteCommand("PRAGMA temp_store=MEMORY;", c);
         cmd.ExecuteNonQuery();
       }
+
+      Connection = new SQLiteConnection(ConnectionString);
+      Connection.Open();
+      ConnectionLock = new object();
 
       if (CancellationToken.IsCancellationRequested) return;
     }
@@ -272,10 +286,9 @@ namespace Speckle.Core.Transports
     public string GetObject(string hash)
     {
       if (CancellationToken.IsCancellationRequested) return null;
-      using (var c = new SQLiteConnection(ConnectionString))
+      lock (ConnectionLock)
       {
-        c.Open();
-        using (var command = new SQLiteCommand(c))
+        using (var command = new SQLiteCommand(Connection))
         {
           command.CommandText = "SELECT * FROM objects WHERE hash = @hash LIMIT 1 ";
           command.Parameters.AddWithValue("@hash", hash);
@@ -341,16 +354,50 @@ namespace Speckle.Core.Transports
       }
     }
 
-    public void Dispose()
-    {
-      // TODO: Check if it's still writing?
-      Connection.Close();
-      Connection.Dispose();
-    }
-
     public override string ToString()
     {
       return $"Sqlite Transport @{RootPath}";
+    }
+
+    public async Task<Dictionary<string, bool>> HasObjects(List<string> objectIds)
+    {
+      Dictionary<string, bool> ret = new Dictionary<string, bool>();
+      // Initialize with false so that canceled queries still return a dictionary item for every object id
+      foreach (string objectId in objectIds) ret[objectId] = false;
+
+      using (var c = new SQLiteConnection(ConnectionString))
+      {
+        c.Open();
+        foreach (string objectId in objectIds)
+        {
+          if (CancellationToken.IsCancellationRequested) return ret;
+
+          using (var command = new SQLiteCommand(c))
+          {
+            command.CommandText = "SELECT 1 FROM objects WHERE hash = @hash LIMIT 1 ";
+            command.Parameters.AddWithValue("@hash", objectId);
+            using (var reader = command.ExecuteReader())
+            {
+              bool rowFound = reader.Read();
+              ret[objectId] = rowFound;
+            }
+          }
+        }
+      }
+      return ret;
+    }
+
+    public void Dispose()
+    {
+      // TODO: Check if it's still writing?
+      Connection?.Close();
+      Connection?.Dispose();
+      WriteTimer.Dispose();
+    }
+
+    public object Clone()
+    {
+      return new SQLiteTransport(_BasePath, _ApplicationName, _Scope) { OnProgressAction = OnProgressAction, OnErrorAction = OnErrorAction, CancellationToken = CancellationToken };
     }
   }
 }

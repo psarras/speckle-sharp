@@ -1,12 +1,12 @@
-﻿using Speckle.Newtonsoft.Json;
-using Speckle.Newtonsoft.Json.Linq;
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using Speckle.Core.Api;
 using Speckle.Core.Kits;
 using Speckle.Core.Transports;
+using Speckle.Newtonsoft.Json;
+using Speckle.Newtonsoft.Json.Linq;
 
 namespace Speckle.Core.Models
 {
@@ -37,15 +37,28 @@ namespace Speckle.Core.Models
     /// </summary>
     /// <param name="decompose">If true, will decompose the object in the process of hashing.</param>
     /// <returns></returns>
-    public string GetId(bool decompose = false)
+    public string GetId(bool decompose = false, SerializerVersion serializerVersion = SerializerVersion.V2)
     {
-      var (s, t) = Operations.GetSerializerInstance();
-      if (decompose)
+      if (serializerVersion == SerializerVersion.V1)
       {
-        s.WriteTransports = new List<ITransport>() { new MemoryTransport() };
+        var (s, t) = Operations.GetSerializerInstance();
+        if (decompose)
+        {
+          s.WriteTransports = new List<ITransport>() { new MemoryTransport() };
+        }
+        var obj = JsonConvert.SerializeObject(this, t);
+        return JObject.Parse(obj).GetValue("id").ToString();
       }
-      var obj = JsonConvert.SerializeObject(this, t);
-      return JObject.Parse(obj).GetValue("id").ToString();
+      else
+      {
+        var s = new Serialisation.BaseObjectSerializerV2();
+        if (decompose)
+        {
+          s.WriteTransports = new List<ITransport>() { new MemoryTransport() };
+        }
+        var obj = s.Serialize(this);
+        return JObject.Parse(obj).GetValue("id").ToString();
+      }
     }
 
     /// <summary>
@@ -72,19 +85,61 @@ namespace Speckle.Core.Models
       foreach (var prop in typedProps)
       {
         var detachAttribute = prop.GetCustomAttribute<DetachProperty>(true);
-        if (detachAttribute != null && detachAttribute.Detachable)
+        var chunkAttribute = prop.GetCustomAttribute<Chunkable>(true);
+
+        object value = prop.GetValue(@base);
+
+        if (detachAttribute != null && detachAttribute.Detachable && chunkAttribute == null)
         {
-          object value = prop.GetValue(@base);
           count += HandleObjectCount(value, parsed);
+        }
+        else if (detachAttribute != null && detachAttribute.Detachable && chunkAttribute != null)
+        {
+          // Simplified chunking count handling.
+          var asList = value as IList;
+          if (asList != null)
+          {
+            count += asList.Count / chunkAttribute.MaxObjCountPerChunk;
+            continue;
+          }
+          var asArray = value as Array;
+          if (asArray != null)
+          {
+            count += asArray.Length / chunkAttribute.MaxObjCountPerChunk;
+            continue;
+          }
         }
       }
 
       var dynamicProps = @base.GetDynamicMembers();
+      var chunkSyntax = new System.Text.RegularExpressions.Regex(@"^@\((\d*)\)");
       foreach (var propName in dynamicProps)
       {
         if (!propName.StartsWith("@"))
         {
           continue;
+        }
+
+        // Simplfied dynamic prop chunking handling
+        if (chunkSyntax.IsMatch(propName))
+        {
+          int chunkSize = -1;
+          var match = chunkSyntax.Match(propName);
+          int.TryParse(match.Groups[match.Groups.Count - 1].Value, out chunkSize);
+          
+          var asList = @base[propName] as IList;
+          if(chunkSize != -1 && asList != null)
+          {
+            count += asList.Count / chunkSize;
+            continue;
+          }
+
+          var asArr = @base[propName] as Array;
+          if(chunkSize != -1 && asArr != null)
+          {
+            count += asArr.Length / chunkSize;
+            continue;
+          }
         }
 
         count += HandleObjectCount(@base[propName], parsed);
@@ -192,30 +247,6 @@ namespace Speckle.Core.Models
     [SchemaIgnore]
     public string applicationId { get; set; }
 
-
-    private string _units;
-    /// <summary>
-    /// The units in which any spatial values within this object are expressed. 
-    /// </summary>
-    [SchemaIgnore]
-    public string units
-    {
-      get
-      {
-        try
-        {
-          return Units.GetUnitsFromString(_units);
-        }
-        catch
-        {
-          return _units;
-        }
-      }
-      set
-      {
-        _units = Units.GetUnitsFromString(value);
-      }
-    }
 
     private string __type;
 

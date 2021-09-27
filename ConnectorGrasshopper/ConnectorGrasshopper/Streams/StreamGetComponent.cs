@@ -14,8 +14,9 @@ namespace ConnectorGrasshopper.Streams
 {
   public class StreamGetComponent : GH_Component
   {
-    public StreamGetComponent() : base("Stream Get", "sGet", "Gets a specific stream from your account", "Speckle 2",
-      "Streams")
+    public StreamGetComponent() : base("Stream Get", "sGet", "Gets a specific stream from your account",
+      ComponentCategories.PRIMARY_RIBBON,
+      ComponentCategories.STREAMS)
     {
     }
 
@@ -27,7 +28,8 @@ namespace ConnectorGrasshopper.Streams
 
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-      pManager.AddTextParameter("Stream ID", "ID", "Stream ID to fetch stream from the server", GH_ParamAccess.item);
+      pManager.AddParameter(new SpeckleStreamParam("Stream ID/URL", "ID/URL", "Speckle stream ID or URL",
+        GH_ParamAccess.item));
       var acc = pManager.AddTextParameter("Account", "A", "Account to get stream with.", GH_ParamAccess.item);
 
       Params.Input[acc].Optional = true;
@@ -52,21 +54,21 @@ namespace ConnectorGrasshopper.Streams
         return;
       }
 
-      string accountId = null;
-      string id = null;
+      string userId = null;
+      GH_SpeckleStream ghIdWrapper = null;
       DA.DisableGapLogic();
-      DA.GetData(0, ref id);
-      var account = !DA.GetData(1, ref accountId)
-        ? AccountManager.GetDefaultAccount()
-        : AccountManager.GetAccounts().FirstOrDefault(a => a.id == accountId);
-
-      if(account == null)
+      if (!DA.GetData(0, ref ghIdWrapper)) return;
+      DA.GetData(1, ref userId);
+      var idWrapper = ghIdWrapper.Value;
+      var account = string.IsNullOrEmpty(userId)
+        ? AccountManager.GetAccounts().FirstOrDefault(a => a.serverInfo.url == idWrapper.ServerUrl) // If no user is passed in, get the first account for this server
+        : AccountManager.GetAccounts().FirstOrDefault(a => a.userInfo.id == userId); // If user is passed in, get matching user in the db
+      if (account == null || account.serverInfo.url != idWrapper.ServerUrl)
       {
-        AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Could not find default account in this machine. Use the Speckle Manager to add an account.");
+        AddRuntimeMessage(GH_RuntimeMessageLevel.Error,
+          $"Could not find an account for server ${idWrapper.ServerUrl}. Use the Speckle Manager to add an account.");
         return;
       }
-
-      Params.Input[1].AddVolatileData(new GH_Path(0), 0, account.id);
 
       if (error != null)
       {
@@ -80,7 +82,7 @@ namespace ConnectorGrasshopper.Streams
         Message = "Fetching";
         // Validation
         string errorMessage = null;
-        if (!ValidateInput(account, id, ref errorMessage))
+        if (!ValidateInput(account, idWrapper.StreamId, ref errorMessage))
         {
           AddRuntimeMessage(GH_RuntimeMessageLevel.Error, errorMessage);
           return;
@@ -93,8 +95,11 @@ namespace ConnectorGrasshopper.Streams
           {
             //Exists?
             var client = new Client(account);
-            var result = await client.StreamGet(id);
-            stream = new StreamWrapper(result.id, account.id, account.serverInfo.url);
+            var result = await client.StreamGet(idWrapper.StreamId);
+            stream = new StreamWrapper(result.id, account.userInfo.id, account.serverInfo.url);
+            stream.BranchName = idWrapper.BranchName;
+            stream.ObjectId = idWrapper.ObjectId;
+            stream.CommitId = idWrapper.CommitId;
           }
           catch (Exception e)
           {
@@ -103,7 +108,7 @@ namespace ConnectorGrasshopper.Streams
           }
           finally
           {
-            Rhino.RhinoApp.InvokeOnUiThread((Action)delegate { ExpireSolution(true); });
+            Rhino.RhinoApp.InvokeOnUiThread((Action) delegate { ExpireSolution(true); });
           }
         });
       }
@@ -148,7 +153,7 @@ namespace ConnectorGrasshopper.Streams
 
     protected override void BeforeSolveInstance()
     {
-      Tracker.TrackPageview("stream", "details");
+      Tracker.TrackPageview(Tracker.STREAM_GET);
       base.BeforeSolveInstance();
     }
   }

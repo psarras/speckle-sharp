@@ -1,9 +1,9 @@
-﻿using Autodesk.Revit.DB;
+﻿using System;
+using System.Collections.Generic;
+using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
 using Objects.BuiltElements.Revit;
 using Speckle.Core.Models;
-using System;
-using System.Collections.Generic;
 using Column = Objects.BuiltElements.Column;
 using DB = Autodesk.Revit.DB;
 using Line = Objects.Geometry.Line;
@@ -17,10 +17,10 @@ namespace Objects.Converter.Revit
     {
       if (speckleColumn.baseLine == null)
       {
-        throw new Exception("Only line based Beams are currently supported.");
+        throw new Speckle.Core.Logging.SpeckleException("Only line based Beams are currently supported.");
       }
 
-      DB.FamilySymbol familySymbol = GetElementType<FamilySymbol>(speckleColumn); ;
+      DB.FamilySymbol familySymbol = GetElementType<FamilySymbol>(speckleColumn);
       var baseLine = CurveToNative(speckleColumn.baseLine).get_Item(0);
 
       // If the start point elevation is higher than the end point elevation, reverse the line.
@@ -32,7 +32,7 @@ namespace Objects.Converter.Revit
       DB.Level level = null;
       DB.Level topLevel = null;
       DB.FamilyInstance revitColumn = null;
-      var structuralType = StructuralType.Column;
+      //var structuralType = StructuralType.Column;
       var isLineBased = true;
 
       var speckleRevitColumn = speckleColumn as RevitColumn;
@@ -41,7 +41,7 @@ namespace Objects.Converter.Revit
       {
         level = LevelToNative(speckleRevitColumn.level);
         topLevel = LevelToNative(speckleRevitColumn.topLevel);
-        structuralType = speckleRevitColumn.structural ? StructuralType.Column : StructuralType.NonStructural;
+        //structuralType = speckleRevitColumn.structural ? StructuralType.Column : StructuralType.NonStructural;
         //non slanted columns are point based
         isLineBased = speckleRevitColumn.isSlanted;
       }
@@ -90,7 +90,12 @@ namespace Objects.Converter.Revit
 
       if (revitColumn == null && isLineBased)
       {
-        revitColumn = Doc.Create.NewFamilyInstance(baseLine, familySymbol, level, structuralType);
+        revitColumn = Doc.Create.NewFamilyInstance(baseLine, familySymbol, level, StructuralType.Column);
+        if (revitColumn.Symbol.Family.FamilyPlacementType == FamilyPlacementType.CurveDrivenStructural)
+        {
+          StructuralFramingUtils.DisallowJoinAtEnd(revitColumn, 0);
+          StructuralFramingUtils.DisallowJoinAtEnd(revitColumn, 1);
+        }
       }
 
       //try with a point based column
@@ -101,7 +106,7 @@ namespace Objects.Converter.Revit
 
         var basePoint = start.Z < end.Z ? start : end; // pick the lowest
         revitColumn = Doc.Create.NewFamilyInstance(basePoint, familySymbol, level, StructuralType.NonStructural);
-
+        //
         //rotate, we know it must be a RevitColumn
         var axis = DB.Line.CreateBound(new XYZ(basePoint.X, basePoint.Y, 0), new XYZ(basePoint.X, basePoint.Y, 1000));
         (revitColumn.Location as LocationPoint).Rotate(axis, speckleRevitColumn.rotation - (revitColumn.Location as LocationPoint).Rotation);
@@ -109,12 +114,13 @@ namespace Objects.Converter.Revit
 
       if (revitColumn == null)
       {
-        ConversionErrors.Add(new Error { message = $"Failed to create column for {speckleColumn.applicationId}." });
+        ConversionErrors.Add(new Exception($"Failed to create column for {speckleColumn.applicationId}."));
         return null;
       }
 
       TrySetParam(revitColumn, BuiltInParameter.FAMILY_BASE_LEVEL_PARAM, level);
       TrySetParam(revitColumn, BuiltInParameter.FAMILY_TOP_LEVEL_PARAM, topLevel);
+
 
       if (speckleRevitColumn != null)
       {
@@ -128,7 +134,10 @@ namespace Objects.Converter.Revit
           revitColumn.flipFacing();
         }
 
-        SetOffsets(revitColumn, speckleRevitColumn);
+        //do change offset for slanted columns, it's automatic
+        if (!isLineBased)
+          SetOffsets(revitColumn, speckleRevitColumn);
+
         SetInstanceParameters(revitColumn, speckleRevitColumn);
       }
 
@@ -160,24 +169,25 @@ namespace Objects.Converter.Revit
       var topOffset = ScaleToNative(speckleRevitColumn.topOffset, speckleRevitColumn.units);
 
       //these have been set previously
-      DB.Level level = Doc.GetElement(baseLevelParam.AsElementId()) as DB.Level;
-      DB.Level topLevel = Doc.GetElement(topLevelParam.AsElementId()) as DB.Level;
+      //DB.Level level = Doc.GetElement(baseLevelParam.AsElementId()) as DB.Level;
+      //DB.Level topLevel = Doc.GetElement(topLevelParam.AsElementId()) as DB.Level;
 
       //checking if BASE offset needs to be set before or after TOP offset
-      if (topLevel != null && topLevel.Elevation + baseOffset <= level.Elevation)
-      {
-        baseOffsetParam.Set(baseOffset);
-        topOffsetParam.Set(topOffset);
-      }
-      else
-      {
-        topOffsetParam.Set(topOffset);
-        baseOffsetParam.Set(baseOffset);
-      }
+      //      if ((topLevel != null && level.Elevation + baseOffset == topLevel.Elevation) ||
+      //       (topLevel!=null && topLevel.Elevation == level.Elevation && baseOffset > 0)) //edge case
+      //    {
+      baseOffsetParam.Set(baseOffset);
+      topOffsetParam.Set(topOffset);
+      //    }
+      //    else
+      //    {
+      //       topOffsetParam.Set(topOffset);
+      //      baseOffsetParam.Set(baseOffset);
+      //    }
 
     }
 
-    public RevitColumn ColumnToSpeckle(DB.FamilyInstance revitColumn)
+    public Base ColumnToSpeckle(DB.FamilyInstance revitColumn)
     {
       var speckleColumn = new RevitColumn();
       speckleColumn.type = Doc.GetElement(revitColumn.GetTypeId()).Name;
@@ -188,7 +198,7 @@ namespace Objects.Converter.Revit
       speckleColumn.facingFlipped = revitColumn.FacingFlipped;
       speckleColumn.handFlipped = revitColumn.HandFlipped;
       speckleColumn.isSlanted = revitColumn.IsSlantedColumn;
-      speckleColumn.structural = revitColumn.StructuralType == StructuralType.Column;
+      //speckleColumn.structural = revitColumn.StructuralType == StructuralType.Column;
 
       //geometry
       var baseGeometry = LocationToSpeckle(revitColumn);
@@ -197,31 +207,29 @@ namespace Objects.Converter.Revit
       //make line from point and height
       if (baseLine == null && baseGeometry is Point basePoint)
       {
-        var topLevelParam = revitColumn.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_PARAM);
-        var elevation = (double)((RevitLevel)ParameterToSpeckle(topLevelParam).value).elevation;
+        var elevation = ConvertAndCacheLevel(revitColumn, BuiltInParameter.FAMILY_TOP_LEVEL_PARAM).elevation;
         baseLine = new Line(basePoint, new Point(basePoint.x, basePoint.y, elevation + speckleColumn.topOffset, ModelUnits), ModelUnits);
       }
 
       if (baseLine == null)
       {
-        throw new Exception("Only line based Columns are currently supported.");
+        return RevitElementToSpeckle(revitColumn);
       }
 
       speckleColumn.baseLine = baseLine; //all speckle columns should be line based
 
       GetAllRevitParamsAndIds(speckleColumn, revitColumn,
-        new List<string> { "FAMILY_BASE_LEVEL_PARAM", "FAMILY_TOP_LEVEL_PARAM", "FAMILY_BASE_LEVEL_OFFSET_PARAM", "FAMILY_TOP_LEVEL_OFFSET_PARAM" });
+        new List<string> { "FAMILY_BASE_LEVEL_PARAM", "FAMILY_TOP_LEVEL_PARAM", "FAMILY_BASE_LEVEL_OFFSET_PARAM", "FAMILY_TOP_LEVEL_OFFSET_PARAM", "SCHEDULE_BASE_LEVEL_OFFSET_PARAM", "SCHEDULE_TOP_LEVEL_OFFSET_PARAM" });
 
       if (revitColumn.Location is LocationPoint)
       {
         speckleColumn.rotation = ((LocationPoint)revitColumn.Location).Rotation;
       }
 
-      speckleColumn["@displayMesh"] = GetElementMesh(revitColumn);
+      speckleColumn.displayMesh = GetElementMesh(revitColumn);
 
       return speckleColumn;
     }
-
 
   }
 }

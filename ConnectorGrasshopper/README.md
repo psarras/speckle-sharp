@@ -1,22 +1,28 @@
 # Connector Grasshopper
 
-[![Twitter Follow](https://img.shields.io/twitter/follow/SpeckleSystems?style=social)](https://twitter.com/SpeckleSystems) [![Discourse users](https://img.shields.io/discourse/users?server=https%3A%2F%2Fdiscourse.speckle.works&style=flat-square)](https://discourse.speckle.works) [![website](https://img.shields.io/badge/www-speckle.systems-royalblue?style=flat-square)](https://speckle.systems)
+[![Twitter Follow](https://img.shields.io/twitter/follow/SpeckleSystems?style=social)](https://twitter.com/SpeckleSystems) [![Community forum users](https://img.shields.io/discourse/users?server=https%3A%2F%2Fdiscourse.speckle.works&style=flat-square&logo=discourse&logoColor=white)](https://discourse.speckle.works) [![website](https://img.shields.io/badge/https://-speckle.systems-royalblue?style=flat-square)](https://speckle.systems) [![docs](https://img.shields.io/badge/docs-speckle.guide-orange?style=flat-square&logo=read-the-docs&logoColor=white)](https://speckle.guide/dev/)
 
 ## Introduction
 
-This repo holds Speckle's Grasshopper Connector and it is currently released as ⚠ **ALPHA** ⚠, please use at your own risk!
+This repo holds Speckle's Grasshopper Connector and it is currently released as ⚠ **BETA** ⚠, please use at your own risk!
 
 The connector is structured in 1 c# project:
 
 - ConnectorGrasshopper: contains the grasshopper component nodes and parameters.
 
+## Documentation
+
+Comprehensive developer and user documentation can be found in our:
+
+#### 📚 [Speckle Docs website](https://speckle.guide/dev/)
+
 ## Developing & Debugging
 
-We encourage everyone interested to debug / hack /contribute / give feedback to this project.
+We encourage everyone interested to debug / hack / contribute / give feedback to this project.
 
 ### Requirements
 
-- Rhino 6 or above (we're currently testing with 6.30)
+- Rhino 6 or above (we're currently testing with 6.28)
 - A Speckle Server running (more on this below)
 - Speckle Manager (more on this below)
 
@@ -26,11 +32,21 @@ Following instructions on how to get started debugging and contributing to this 
 
 #### Dependencies
 
-The c# projects have local dependencies, in the future these will be referenced as NuGet packages, but for the time being **make sure also to clone the following repos** in a folder adjacent to the one of this repo:
+All dependencies exist either on this repo (such as `Core`, `Objects`, etc...) or are installed via NuGet. 
+
+Worth mentioning is the use of our own asyncronous grasshopper component, which you can find here:
 
 - https://github.com/specklesystems/GrasshopperAsyncComponent
 
-It'd be a good solution to just clone all the Speckle repos you're working on in one folder.
+We also make use of the following `dotnet tools` in this project:
+
+- https://github.com/mono/t4
+
+These are declared on the manifest file `.config/dotnet-tools.json`. To install them in your computer just run the following command on your terminal:
+
+```
+dotnet tools restore
+```
 
 #### Server
 

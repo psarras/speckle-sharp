@@ -12,13 +12,10 @@ namespace Speckle.Core.Logging
   /// </summary>
   public static class Tracker
   {
-    private static readonly string PiwikBaseUrl = "https://speckle.matomo.cloud/";
+    private static readonly string PiwikBaseUrl = "https://speckle.matomo.cloud";
     private static readonly int SiteId = 2;
 
     #region String constants helpers
-
-    public const string SESSION_START = "session/start";
-    public const string SESSION_END = "session/end";
 
     public const string RECEIVE = "receive";
     public const string RECEIVE_MANUAL = "receive/manual";
@@ -43,13 +40,13 @@ namespace Speckle.Core.Logging
     public const string ACCOUNT_DEFAULT = "account/default";
     public const string ACCOUNT_DETAILS = "account/details";
     public const string ACCOUNT_LIST = "account/list";
-    
+
     public const string CONVERT_TONATIVE = "convert/tonative";
     public const string CONVERT_TOSPECKLE = "convert/tospeckle";
-    
+
     public const string SERIALIZE = "serialization/serialize";
     public const string DESERIALIZE = "serialization/deserialize";
-    
+
     #endregion
 
     private static PiwikTracker _tracker;
@@ -69,9 +66,10 @@ namespace Speckle.Core.Logging
 
     public static void TrackPageview(params string[] segments)
     {
+#if !DEBUG
       Task.Run(() =>
       {
-        try 
+        try
         {
           var builder = new StringBuilder();
           builder.Append($"http://connectors/{Setup.HostApplication}/");
@@ -80,15 +78,18 @@ namespace Speckle.Core.Logging
           {
             builder.Append(segment + "/");
           }
-
+          var path = string.Join("/", segments);
           PiwikTracker.SetUrl(builder.ToString());
-          PiwikTracker.DoTrackPageView(string.Join("/", segments));
-        } catch(Exception e)
+          PiwikTracker.DoTrackPageView(path);
+          PiwikTracker.DoTrackEvent(Setup.HostApplication, path);
+        }
+        catch (Exception e)
         {
           // POKEMON: Gotta catch 'em all!
         }
-        
+
       });
+#endif
 
     }
 

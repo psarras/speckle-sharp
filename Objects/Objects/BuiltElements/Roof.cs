@@ -1,4 +1,5 @@
 ﻿using Objects.Geometry;
+using Objects.Utils;
 using Speckle.Core.Kits;
 using Speckle.Core.Models;
 using System;
@@ -7,7 +8,7 @@ using System.Text;
 
 namespace Objects.BuiltElements
 {
-  public class Roof : Base
+  public class Roof : Base, IDisplayMesh
   {
     public ICurve outline { get; set; }
     public List<ICurve> voids { get; set; } = new List<ICurve>();
@@ -15,10 +16,15 @@ namespace Objects.BuiltElements
     [DetachProperty]
     public List<Base> elements { get; set; }
 
+    [DetachProperty]
+    public Mesh displayMesh { get; set; }
+
+    public string units { get; set; }
+
     public Roof() { }
 
-    [SchemaInfo("Roof", "Creates a Speckle roof")]
-    public Roof(ICurve outline, List<ICurve> voids = null, List<Base> elements = null)
+    [SchemaInfo("Roof", "Creates a Speckle roof", "BIM", "Architecture")]
+    public Roof([SchemaMainParam] ICurve outline, List<ICurve> voids = null, List<Base> elements = null)
     {
       this.outline = outline;
       this.voids = voids;
@@ -33,13 +39,11 @@ namespace Objects.BuiltElements.Revit.RevitRoof
   {
     public string family { get; set; }
     public string type { get; set; }
-    public List<Parameter> parameters { get; set; }
+    public Base parameters { get; set; }
     public string elementId { get; set; }
     public Level level { get; set; }
 
-    public RevitRoof()
-    {
-    }
+    public RevitRoof() { }
   }
 
   public class RevitExtrusionRoof : RevitRoof
@@ -48,26 +52,38 @@ namespace Objects.BuiltElements.Revit.RevitRoof
     public double end { get; set; }
     public Line referenceLine { get; set; }
 
-    public RevitExtrusionRoof()
-    {
+    public RevitExtrusionRoof() { }
 
-    }
-
-    [SchemaInfo("RevitExtrusionRoof", "Creates a Revit roof by extruding a curve")]
-    public RevitExtrusionRoof(string family, string type, double start, double end, Line referenceLine, Level level,
+    /// <summary>
+    /// SchemaBuilder constructor for a Revit extrusion roof
+    /// </summary>
+    /// <param name="family"></param>
+    /// <param name="type"></param>
+    /// <param name="start"></param>
+    /// <param name="end"></param>
+    /// <param name="referenceLine"></param>
+    /// <param name="level"></param>
+    /// <param name="elements"></param>
+    /// <param name="parameters"></param>
+    /// <remarks>Assign units when using this constructor due to <paramref name="start"/> and <paramref name="end"/> params</remarks>
+    [SchemaInfo("RevitExtrusionRoof", "Creates a Revit roof by extruding a curve", "Revit", "Architecture")]
+    public RevitExtrusionRoof(string family, string type,
+      [SchemaParamInfo("Extrusion start")] double start,
+      [SchemaParamInfo("Extrusion end")] double end,
+      [SchemaParamInfo("Profile along which to extrude the roof")][SchemaMainParam] Line referenceLine,
+      Level level,
       List<Base> elements = null,
       List<Parameter> parameters = null)
     {
       this.family = family;
       this.type = type;
-      this.parameters = parameters;
+      this.parameters = parameters.ToBase();
       this.level = level;
       this.start = start;
       this.end = end;
       this.referenceLine = referenceLine;
       this.elements = elements;
     }
-
   }
 
   public class RevitFootprintRoof : RevitRoof
@@ -75,12 +91,10 @@ namespace Objects.BuiltElements.Revit.RevitRoof
     public RevitLevel cutOffLevel { get; set; }
     public double? slope { get; set; }
 
-    public RevitFootprintRoof()
-    {
+    public RevitFootprintRoof() { }
 
-    }
-    [SchemaInfo("RevitFootprintRoof", "Creates a Revit roof by outline")]
-    public RevitFootprintRoof(ICurve outline, string family, string type, Level level, RevitLevel cutOffLevel = null, double slope = 0, List<ICurve> voids = null,
+    [SchemaInfo("RevitFootprintRoof", "Creates a Revit roof by outline", "Revit", "Architecture")]
+    public RevitFootprintRoof([SchemaMainParam] ICurve outline, string family, string type, Level level, RevitLevel cutOffLevel = null, double slope = 0, List<ICurve> voids = null,
       List<Base> elements = null,
       List<Parameter> parameters = null)
     {
@@ -89,11 +103,10 @@ namespace Objects.BuiltElements.Revit.RevitRoof
       this.family = family;
       this.type = type;
       this.slope = slope;
-      this.parameters = parameters;
+      this.parameters = parameters.ToBase();
       this.level = level;
       this.cutOffLevel = cutOffLevel;
       this.elements = elements;
     }
   }
-
 }
